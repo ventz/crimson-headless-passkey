@@ -1,0 +1,36 @@
+# Secrets: the passkey private key and live session cookies. The default
+# location is outside the repo (~/.local/share/crimson-headless-passkey), but
+# keep these out of git wherever someone points the data dir.
+passkey_credential*.json*
+auth_state*.json*
+*.tmp
+.lock
+
+# Local and agent files
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.claude/
+.mcp.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+private/
+.private/
+sessions/
+.sessions/
+*.session
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
