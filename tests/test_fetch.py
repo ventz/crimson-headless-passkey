@@ -301,3 +301,61 @@ def test_fetch_report_status_line():
 def test_manifest_round_trip(tmp_path):
     fetch_mod.save_manifest(tmp_path, {"version": 1, "files": {"a": {"length": 1}}})
     assert fetch_mod.load_manifest(tmp_path)["files"]["a"]["length"] == 1
+
+
+class _StopAtSignIn(Exception):
+    pass
+
+
+def _capture_signed_in(monkeypatch):
+    seen = {}
+
+    def fake_signed_in(url, settings, **kwargs):
+        seen.update(kwargs)
+        raise _StopAtSignIn
+
+    monkeypatch.setattr(fetch_mod.session, "signed_in", fake_signed_in)
+    return seen
+
+
+def test_fetch_does_not_save_the_session_by_default(tmp_path, monkeypatch):
+    seen = _capture_signed_in(monkeypatch)
+    settings = Settings.from_env(env={}, data_dir=tmp_path / "data")
+    with pytest.raises(_StopAtSignIn):
+        asyncio.run(fetch_mod.fetch(f"{APP}/file.txt", tmp_path / "out", settings=settings))
+    assert seen["save_state"] is False
+    assert seen["use_saved_state"] is True
+
+
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [([], False), (["--no-save-state"], False), (["--save-state"], True)],
+)
+@pytest.mark.parametrize("entry", ["crimson-headless-passkey", "harvard-fetch"])
+def test_fetch_cli_saves_the_session_only_with_save_state(
+    tmp_path, monkeypatch, entry, flags, expected
+):
+    from crimson_headless_passkey import cli
+
+    seen = {}
+
+    async def fake_fetch(url, out_dir, **kwargs):
+        seen.update(kwargs)
+        return fetch_mod.FetchReport(ok=True, status=STATUS_OK, url=url, out_dir=Path(out_dir))
+
+    monkeypatch.setattr(cli.downloader, "fetch", fake_fetch)
+    monkeypatch.chdir(tmp_path)  # no ./.env from the repo
+    args = [f"{APP}/file.txt", "--out", str(tmp_path / "out"), "--data-dir", str(tmp_path / "d")]
+    if entry == "harvard-fetch":
+        code = cli.fetch_main([*args, *flags])
+    else:
+        code = cli.main(["fetch", *args, *flags])
+    assert code == 0
+    assert seen["save_state"] is expected
+
+
+def test_fetch_cli_rejects_save_state_with_no_save_state(tmp_path):
+    from crimson_headless_passkey import cli
+
+    with pytest.raises(SystemExit):
+        cli.fetch_main([f"{APP}/f", "--out", str(tmp_path), "--save-state", "--no-save-state"])

@@ -265,12 +265,17 @@ async def fetch(
     channel: str | None = None,
     timeout_s: float = 30,
     use_saved_state: bool = True,
-    save_state: bool = True,
+    save_state: bool = False,
     on_status: Callable[[str], None] | None = None,
     cookies_out: Path | str | None = None,
     force_cookies: bool = False,
 ) -> FetchReport:
-    """Sign in, then download ``url`` into ``out_dir``. See module docstring."""
+    """Sign in, then download ``url`` into ``out_dir``. See module docstring.
+
+    The saved session is read (unless ``use_saved_state`` is False) but not
+    written back unless ``save_state`` is True: a download job should not leave
+    fresh site cookies behind by default.
+    """
     with redact.active():
         started = time.monotonic()
         settings = settings or Settings.from_env()

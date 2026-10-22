@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0 - Unreleased
+
+### Changed
+
+- **`fetch` / `harvard-fetch` no longer save the session by default.** A
+  download job now reads the saved session (unless `--fresh`) but writes it
+  back only with the new `--save-state` flag. `--no-save-state` is still
+  accepted and matches the new default. The library `fetch()` /
+  `fetch_sync()` default is now `save_state=False`. `login` is unchanged and
+  still saves the session.
+
+### Fixed
+
+- The stderr status line printed `code=[REDACTED]` instead of the exit code,
+  because secret redaction treated it as an OAuth `code=` value. A bare 1-3
+  digit `code=N` is now left alone; real OAuth codes are still scrubbed.
+
 ## 0.3.0 - Unreleased
 
 **BREAKING:** exit code 1 no longer means every "login did not finish". It now
@@ -58,7 +75,7 @@ codes (see the mapping below and [docs/configuration.md](docs/configuration.md))
 
 - Fetch was verified against a real SharePoint site (files and folders,
   including sharing links). Offline tests cover the mechanism.
-- Session saving stays on by default (Keychain on macOS).
+- Session saving stays on by default (Keychain on macOS). Changed for fetch in 0.4.0.
 
 
 ## 0.2.0 - Unreleased

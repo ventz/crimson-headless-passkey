@@ -237,7 +237,20 @@ def _add_fetch_args(p: argparse.ArgumentParser) -> None:
         "--json", action="store_true", dest="as_json", help="print a JSON report on stdout"
     )
     p.add_argument("--fresh", action="store_true", help="ignore the saved session")
-    p.add_argument("--no-save-state", action="store_true", help="do not write the session back")
+    save = p.add_mutually_exclusive_group()
+    save.add_argument(
+        "--save-state",
+        dest="save_state",
+        action="store_true",
+        default=False,
+        help="write the session back after sign-in (off by default for fetch)",
+    )
+    save.add_argument(
+        "--no-save-state",
+        dest="save_state",
+        action="store_false",
+        help="do not write the session back (the default; kept for older scripts)",
+    )
     p.add_argument("--headed", action="store_true", help="show the browser window")
     p.add_argument("--timeout", type=positive_float, default=None, help="sign-in timeout seconds")
     p.add_argument(
@@ -370,7 +383,7 @@ def run_fetch(args: argparse.Namespace) -> int:
             channel=args.channel,
             timeout_s=_timeout(args),
             use_saved_state=not args.fresh,
-            save_state=not args.no_save_state,
+            save_state=args.save_state,
             on_status=(lambda m: print(m, file=sys.stderr)) if args.verbose else None,
             cookies_out=args.cookies_out,
             force_cookies=bool(getattr(args, "force", False)),

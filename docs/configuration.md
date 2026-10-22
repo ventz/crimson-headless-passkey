@@ -79,7 +79,7 @@ secret.
 | `login [URL]` | `--headless`, `--channel`, `--timeout` (seconds, default 30), `--fresh`, `--no-save-state`, `--keep-open` / `--close`, `-v` / `--verbose`, `--aws-allow` | `--fresh` ignores saved cookies, so it needs `--username`. The browser stays open for inspection only when headed and run from a terminal; `--keep-open` cannot be combined with `--headless`. The session file is only rewritten after a successful sign-in. |
 | `open [URL]` | `--no-auth`, `--fresh`, `--channel`, `-v` / `--verbose`, `--aws-allow` | Opens the page in a signed-in browser and leaves it open until ENTER. With `--no-auth`: a plain browser with no passkey and no cookies, so the same URL shows what an unauthenticated visit looks like. |
 | `status` | | Settings in effect plus a summary of the stored files |
-| `fetch URL` (also `harvard-fetch`) | `--out`, `--no-recurse`, `--overwrite`, `--dry-run`, `--json`, `--concurrency`, `--cookies-out`, `--headed`, `--fresh`, `--no-save-state`, `--timeout` | Sign in and download a file or SharePoint/OneDrive folder |
+| `fetch URL` (also `harvard-fetch`) | `--out`, `--no-recurse`, `--overwrite`, `--dry-run`, `--json`, `--concurrency`, `--cookies-out`, `--headed`, `--fresh`, `--save-state`, `--timeout` | Sign in and download a file or SharePoint/OneDrive folder. Unlike `login`, it does not save the session unless `--save-state` is given |
 
 All commands accept the settings flags from the table above.
 
@@ -164,7 +164,8 @@ refused. Precedence: flags > environment > `.env` > this file > built-ins.
 | `--concurrency N` | Parallel downloads (default 4) |
 | `--cookies-out FILE` | Explicit: write the site's cookies (0600). Off by default |
 | `--headed` | Show the browser |
-| `--fresh` / `--no-save-state` | Same meaning as `login` |
+| `--fresh` | Ignore the saved session, as with `login` |
+| `--save-state` | Write the session back after sign-in. Off by default for fetch; `--no-save-state` is still accepted and is the default |
 
 PeopleSoft URLs are refused. SharePoint / OneDrive folders resume via `.part`
 files and skip unchanged files using `DIR/.harvard-fetch.json` (non-secret).

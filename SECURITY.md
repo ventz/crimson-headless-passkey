@@ -43,7 +43,8 @@ helps.
 
 The saved session is a second secret: live cookies and local storage for the
 IdP **and every site visited** during a saved sign-in, valid until those
-sessions expire.
+sessions expire. `login` saves it by default; `fetch` and `harvard-fetch` only
+read it, and write it back only with `--save-state`.
 
 Treat both like an SSH private key with no passphrase.
 

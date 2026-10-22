@@ -261,3 +261,30 @@ def test_httpx_logger_with_plain_stream_handler_scrubs_secret():
     finally:
         log.removeHandler(handler)
         log.propagate = prev_prop
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "crimson-headless-passkey: ok code=0 fetched=7 skipped=0 failed=0 bytes=1.0 MB 3.2s",
+        "harvard-fetch: needs_human code=3",
+        "crimson-headless-passkey: interrupted code=130",
+    ],
+)
+def test_exit_code_status_line_survives_redaction(line):
+    assert redact.redact_text(line) == line
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "callback?code=abcDEF123ghi",
+        "code=123456 state=x",
+        "code=7x",
+        "code=12&state=x",
+    ],
+)
+def test_oauth_codes_are_still_scrubbed(text):
+    out = redact.redact_text(text)
+    assert PLACEHOLDER in out
+    assert "abcDEF123ghi" not in out and "123456" not in out

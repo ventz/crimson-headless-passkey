@@ -110,11 +110,13 @@ _HEADER = re.compile(
     r"|x-api-key|x-auth-token)(['\"]?\s*[:=]\s*)(?!\[REDACTED\])[^\r\n]+"
 )
 # name=value pairs whose name marks a session or token (cookies, query, form).
+# `code=` followed by a short number on its own is our exit-code status line,
+# not an OAuth code, so it is left alone.
 _PAIR = re.compile(
     r"(?i)\b(FedAuth|rtFa|SPOIDCRL|EdgeAccessCookie|sid|idx|DT|JSESSIONID"
     r"|ASP\.NET_SessionId|ESTSAUTH\w*|SignInStateCookie|buid|fpc|esctx\w*|xids"
     r"|okta-oauth-\w+|proximity_\w+|PS_TOKEN|access_token|id_token|refresh_token"
-    r"|client_secret|code|state|password|passwd|pwd|api[_-]?key|token|secret"
+    r"|client_secret|code(?!=\d{1,3}(?!\S))|state|password|passwd|pwd|api[_-]?key|token|secret"
     r"|tempauth|access_key|sig|signature|shared_access_token"
     r"|\w*session\w*|\w*token\w*)=(?!\[REDACTED\])[^\s&;,'\"<>]+"
 )
