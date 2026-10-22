@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.3.0 - Unreleased
+
+**BREAKING:** exit code 1 no longer means every "login did not finish". It now
+means authentication failed specifically. Other former-1 cases move to new
+codes (see the mapping below and [docs/configuration.md](docs/configuration.md)).
+
+### Added
+
+- `harvard-fetch URL --out DIR` (and `crimson-headless-passkey fetch`): sign in
+  and download one file or a SharePoint/OneDrive folder recursively. Resumable
+  (`.part` + HTTP Range), skips files already present (non-secret
+  `.harvard-fetch.json` manifest), refuses PeopleSoft URLs.
+- Library helpers: `signed_in()` (async context manager), `http_client()`
+  (in-memory httpx session for one site), `fetch` / `fetch_sync`.
+- `--cookies-out FILE`: explicit opt-in to write one site's cookies with mode
+  0600. Off by default; documented in SECURITY.md.
+- Per-user config file `~/.config/crimson-headless-passkey/config.toml`
+  (override with `CRIMSON_HEADLESS_PASSKEY_CONFIG` / `--config`). Non-secret
+  settings only; secret-looking keys and values are refused.
+- `--upn` / `CRIMSON_HEADLESS_PASSKEY_UPN` for Microsoft's account picker
+  (default: the HarvardKey username). "Stay signed in?" is answered **No**.
+- Okta authenticator chooser and error-banner handling; Microsoft Entra
+  `loginfmt` / KMSI pages treated as intermediate SSO hosts (never destinations).
+- `redact.py`: registry of known secrets plus shape-based scrubbing. Wired into
+  exceptions, `sys.excepthook`, logging and stderr. Covered by a mutation-checked
+  test.
+- `pathsafe.py`: hostile SharePoint names cannot escape `--out` (`.part`
+  included). Mutation-style cases: `..`, absolute paths, Windows separators,
+  NUL/controls, reserved names, symlinks.
+- Distinct exit codes: 0 ok, 1 auth failed, 2 config, 3 needs human, 4 network,
+  5 not found, 6 partial, 130 interrupted. Every command ends with one status
+  line on stderr.
+- Dependency: `httpx` (streaming downloads).
+
+### Exit code mapping (BREAKING)
+
+| Before (0.2) | After (0.3) | Meaning |
+|---|---|---|
+| 0 | 0 | OK |
+| 1 (timeout / passkey rejected / Okta error) | 1 | Auth failed |
+| 1 (username unknown / Okta Verify / CAPTCHA / chooser without passkey) | 3 | Needs a human |
+| 1 (chrome-error / connection refused) | 4 | Network |
+| (new) | 5 | Not found / no access after sign-in |
+| (new) | 6 | Partial download (some files failed) |
+| 2 | 2 | Config / file / browser / refused URL |
+| 130 | 130 | Interrupted |
+
+### Security (review 2026-10-20 PASS-with-fixes)
+
+- Manual https redirect guard before each hop; Secure/host-only cookies; IdP block list
+  is builtins∪config; `redact.install` / `active` for bots; library logger filters at
+  import; `--cookies-out` reuses the fetch session and refuses overwrite without
+  `--force`; `--out` must not be group/world-writable.
+
+### Notes
+
+- Fetch was verified against a real SharePoint site (files and folders,
+  including sharing links). Offline tests cover the mechanism.
+- Session saving stays on by default (Keychain on macOS).
+
+
 ## 0.2.0 - Unreleased
 
 Renamed from `login-passkey` and restructured for a public release.

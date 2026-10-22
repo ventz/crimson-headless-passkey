@@ -75,19 +75,27 @@ def load_env_file(path: Path) -> dict[str, str]:
 
 
 def merged_env(
-    env_file: Path | None = None, environ: Mapping[str, str] = os.environ
+    env_file: Path | None = None,
+    environ: Mapping[str, str] = os.environ,
+    *,
+    config_file: Path | None = None,
+    use_config: bool = True,
 ) -> dict[str, str]:
-    """The environment with ``.env`` settings filled in underneath it.
+    """The environment with ``.env`` and the user config file filled in underneath it.
 
-    ``env_file`` must exist when given explicitly. Without it, ``./.env`` is
-    used if present.
+    Precedence: real environment > ``.env`` > ``config.toml`` (see
+    ``userconfig``). ``env_file`` must exist when given explicitly. Without it,
+    ``./.env`` is used if present.
     """
+    from . import userconfig  # late: userconfig imports this module
+
+    layers: dict[str, str] = {}
+    if use_config:
+        layers.update(userconfig.as_env(userconfig.load_user_config(config_file)))
     if env_file is not None:
         if not env_file.exists():
             raise ConfigError(f"{env_file} not found")
-        path = env_file
+        layers.update(load_env_file(env_file))
     elif DEFAULT_ENV_FILE.is_file():
-        path = DEFAULT_ENV_FILE
-    else:
-        return dict(environ)
-    return {**load_env_file(path), **environ}
+        layers.update(load_env_file(DEFAULT_ENV_FILE))
+    return {**layers, **environ}

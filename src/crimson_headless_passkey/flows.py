@@ -17,7 +17,7 @@ from urllib.parse import unquote
 from playwright.async_api import Browser, BrowserContext, Frame, Page, Playwright, async_playwright
 from playwright.async_api import Error as PlaywrightError
 
-from . import secretstore, storage
+from . import okta, redact, secretstore, storage
 from .authenticator import VirtualAuthenticator
 from .config import (
     Settings,
@@ -29,6 +29,12 @@ from .config import (
     redact_url,
 )
 from .errors import CredentialFileError, LoginPasskeyError, RegistrationError
+from .exitcodes import (
+    STATUS_AUTH_FAILED,
+    STATUS_NEEDS_HUMAN,
+    STATUS_NETWORK,
+    STATUS_OK,
+)
 
 TROUBLESHOOTING_URL = (
     "https://github.com/ventz/crimson-headless-passkey/blob/main/docs/troubleshooting.md"
@@ -84,6 +90,8 @@ class LoginResult:
     page: Page
     # Why sign-in did not finish, when ``ok`` is False.
     reason: str | None = None
+    # ok, auth_failed, needs_human or network (see exitcodes); maps to the exit code.
+    status: str = STATUS_OK
 
 
 def select_credentials(credentials: list[dict], settings: Settings) -> list[dict]:
@@ -130,6 +138,8 @@ async def authenticate(
 
     with storage.locked(settings.data_dir):
         credentials = storage.load_credentials(settings.credential_file)
+        for cred in credentials:
+            redact.register_credential(cred)  # scrubbed from any later error or log
         move_secrets(settings, credentials)
         selected = select_credentials(credentials, settings)
         owns_context = context is None
@@ -139,6 +149,7 @@ async def authenticate(
                 if use_saved_state
                 else None
             )
+            redact.register_storage_state(state)
             context = await browser.new_context(storage_state=state)
         try:
             page = await context.new_page()
@@ -155,8 +166,11 @@ async def authenticate(
                     or next((c["userName"] for c in selected if c.get("userName")), None)
                     or await remembered_username(context, settings.idp_hosts)
                 )
+                ok, reason, status = False, "sign-in did not start", STATUS_AUTH_FAILED
                 await page.goto(url)
-                ok, reason = await wait_for_sign_in(page, settings, authn, username, timeout_s)
+                ok, reason, status = await wait_for_sign_in(
+                    page, settings, authn, username, timeout_s
+                )
             finally:
                 await persist_sign_counts(settings, credentials, authn)
                 await authn.detach()
@@ -171,8 +185,8 @@ async def authenticate(
         # A script redirect after sign-in can still fail and leave the browser
         # on its error page; that is never success (constraint 5).
         if problem := final_url_problem(page.url):
-            ok, reason = False, problem
-    return LoginResult(ok=ok, context=context, page=page, reason=reason)
+            ok, reason, status = False, problem, STATUS_NETWORK
+    return LoginResult(ok=ok, context=context, page=page, reason=reason, status=status)
 
 
 def watch_navigation(page: Page, callback: Callable[[str], None]) -> None:
@@ -268,8 +282,13 @@ async def wait_for_sign_in(
     authn: VirtualAuthenticator,
     username: str | None,
     timeout_s: float,
-) -> tuple[bool, str | None]:
+) -> tuple[bool, str | None, str]:
     """Poll until signed in, submitting the username once if Okta asks for it.
+
+    Returns ``(ok, reason, status)``; ``status`` is one of the ``exitcodes``
+    statuses. On each poll on a signing-in host, ``okta.IdpPageHandler``
+    handles Okta's chooser and error banners and Microsoft's account picker and
+    "Stay signed in?" page (answered No).
 
     A destination-looking URL is not enough on its own: an app's first page
     looks the same before its redirect to the IdP. Success needs evidence: an
@@ -282,7 +301,11 @@ async def wait_for_sign_in(
     ``/oauth2/v1/authorize`` about 0.6 s later, seen 2026-10-03), so landing on
     one is not evidence of anything.
     """
-    hosts = settings.idp_hosts
+    # The IdP plus intermediate SSO hops (Microsoft Entra): none is a destination.
+    hosts = settings.signing_in_hosts
+    handler = okta.IdpPageHandler(
+        settings.idp_hosts, settings.sso_hosts, settings.microsoft_login_name
+    )
 
     def is_sign_in_page(url: str) -> bool:
         return is_idp_url(url, hosts) and not is_signed_in_url(url, hosts)
@@ -303,27 +326,35 @@ async def wait_for_sign_in(
         while loop.time() < deadline:
             url = page.url
             if url.startswith("chrome-error://"):
-                return False, "the page failed to load (network error)"
+                return False, "the page failed to load (network error)", STATUS_NETWORK
             if is_signed_in_url(url, hosts):
                 if seen_sign_in or authn.sign_counts:
-                    return True, None
+                    return True, None, STATUS_OK
                 if settling is None or settling[0] != url:
                     settling = (url, loop.time())
                 elif loop.time() - settling[1] >= SETTLE_S:
-                    return True, None
+                    return True, None, STATUS_OK
             else:
                 settling = None
                 seen_sign_in = seen_sign_in or is_sign_in_page(url)
-                if not submitted and is_idp_url(url, hosts) and is_secure_url(url):
+                if is_secure_url(url):
+                    step = await handler.inspect(page)
+                    if step.terminal:
+                        return False, step.reason, step.kind
+                if not submitted and is_idp_url(url, settings.idp_hosts) and is_secure_url(url):
                     outcome = await submit_username(page, url, username)
                     if outcome == "missing":
-                        return False, (
-                            "Okta is asking for a username; pass --username or set "
-                            "CRIMSON_HEADLESS_PASSKEY_USERNAME"
+                        return (
+                            False,
+                            (
+                                "Okta is asking for a username; pass --username or set "
+                                "CRIMSON_HEADLESS_PASSKEY_USERNAME"
+                            ),
+                            STATUS_NEEDS_HUMAN,
                         )
                     submitted = outcome == "submitted"
             await asyncio.sleep(POLL_S)
-        return False, f"timed out after {timeout_s:g}s"
+        return False, f"timed out after {timeout_s:g}s", STATUS_AUTH_FAILED
     finally:
         page.remove_listener("framenavigated", on_navigated)
 
@@ -391,7 +422,9 @@ async def login(
     keep_open: bool = False,
     verbose: bool = False,
     aws_allow: bool = False,
-) -> bool:
+) -> str:
+    """Sign in, print the outcome, save the session on success. Returns the status
+    (``exitcodes.STATUS_*``): ok, auth_failed, needs_human or network."""
     # Fail on a missing or unsafe credential before starting a browser.
     select_credentials(storage.load_credentials(settings.credential_file), settings)
     async with async_playwright() as p:
@@ -406,11 +439,18 @@ async def login(
                 use_saved_state=use_saved_state,
                 on_navigation=NavigationLog() if verbose else None,
             )
-            ok, reason = result.ok, result.reason
+            ok, reason, status = result.ok, result.reason, result.status
             if ok and (problem := final_url_problem(result.page.url)):
-                ok, reason = False, problem  # belt and braces: never save an error page
+                # belt and braces: never save an error page
+                ok, reason, status = False, problem, STATUS_NETWORK
             if ok and aws_allow:
                 ok, reason = await aws_allow_access(result.page, timeout_s=timeout_s)
+                if not ok:
+                    status = (
+                        STATUS_NETWORK
+                        if reason and "failed to load" in reason
+                        else STATUS_AUTH_FAILED
+                    )
             if ok:
                 print(f"Signed in. Current URL: {redact_url(result.page.url)}")
                 if save_state:
@@ -425,7 +465,7 @@ async def login(
                 print(f"The saved session was left unchanged. See {TROUBLESHOOTING_URL}")
             if keep_open:
                 await prompt("\nBrowser is open. Press ENTER to close. ")
-            return ok
+            return STATUS_OK if ok else (status if status != STATUS_OK else STATUS_AUTH_FAILED)
         finally:
             await close_quietly(browser)
 

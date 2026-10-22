@@ -8,6 +8,9 @@ what you need to do on your side.
 
 - [What Changes When You Use This](#what-changes-when-you-use-this)
 - [Where the Secrets Live](#where-the-secrets-live)
+- [Cookie Export (`--cookies-out`)](#cookie-export---cookies-out)
+- [Per-user Config File (no secrets)](#per-user-config-file-no-secrets)
+- [Redaction](#redaction)
 - [What the Tool Protects Against](#what-the-tool-protects-against)
 - [What It Does Not Protect Against](#what-it-does-not-protect-against)
 - [Protecting the Credential](#protecting-the-credential)
@@ -84,6 +87,76 @@ Secret Service) and Windows (Credential Manager), but only in a logged-in
 desktop session. A headless Linux server has no unlocked keyring, so use
 `--secret-store file` there; that is already the default off macOS.
 
+## HTTP Client Cookie Scope and Redirects
+
+The in-memory ``httpx`` client (``session.http_client`` / ``http_client_from_cookies``):
+
+- Builds the jar from ``http.cookiejar.Cookie`` objects and applies
+  ``DefaultCookiePolicy(strict_ns_domain=DomainStrictNonDomain)`` so **host-only**
+  cookies are never sent to subdomains. (httpx copies the jar on each
+  ``build_request`` and drops the policy; the redirect guard recomputes the
+  ``Cookie`` header from the policy-bearing client jar before every hop.)
+- Follows redirects manually (``follow_redirects=False``, max 10). Before each
+  hop: https only; default port (none/443); no userinfo; host is the site or a
+  proper subdomain; never an **exact** IdP/SSO host.
+- Rebuilds each hop with ``client.build_request`` so the jar computes cookies
+  per URL (including ``Set-Cookie`` from the redirect response). Copied headers
+  drop ``Cookie``; ``Authorization`` is dropped when the host changes.
+- Suffix blocks (``.harvard.edu``, ``.okta.com``) apply only when **filtering
+  cookies into the jar** (parent ``Domain=.harvard.edu``). Request targets like
+  ``https://canvas.harvard.edu/`` are allowed.
+
+## Cookie Export (`--cookies-out`)
+
+By default, cookies never leave memory. `http_client()` builds an in-memory
+`httpx` session for one site. IdP and SSO cookies are **always** excluded
+(built-in Harvard / Okta / Microsoft hosts, `*.okta.com`, `*.harvard.edu`,
+`login.live.com`, plus any configured hosts) unless you pass
+`include_idp=True`. Configuration adds to that list; it never replaces it, and
+`settings=None` still excludes the built-ins.
+
+Redirects are followed manually (at most 10 hops). **Before** each hop is
+sent, the URL must be https, on the site host or a proper subdomain (lookalike
+hosts like `evilcontoso.sharepoint.com` are refused), and never an IdP/SSO
+host. The response is closed before a refusal is raised. Cookies keep their
+`Secure` and host-only scope via `http.cookiejar.Cookie`.
+
+Writing cookies to disk needs the **explicit** flag `--cookies-out FILE` (or
+`save_cookies()` in library code). The file is written through the same 0600
+atomic path as the rest of the tool, holds only that site's cookies (IdP
+filter applied again), refuses to overwrite an existing file unless `--force`,
+and the tool prints a warning. Anyone who can read the file can act as you for
+that site until the cookies expire. Prefer keeping cookies in memory.
+
+## Per-user Config File (no secrets)
+
+`~/.config/crimson-headless-passkey/config.toml` (or
+`$CRIMSON_HEADLESS_PASSKEY_CONFIG` / `--config`) holds **non-secret settings
+only**: username, UPN, hosts, defaults. It must not contain a key, cookie,
+token or password. Keys or values that look secret are refused. The same
+ownership rule as `.env` applies (you own it; nobody else can write it). Tests
+always point this at a temp path via `CRIMSON_HEADLESS_PASSKEY_CONFIG`.
+
+## Redaction
+
+Errors, tracebacks, log records and stderr are scrubbed by `redact.py` before
+they are shown. Known secrets (private key, credential IDs, cookie values
+registered when loaded or exported, plus URL-encoded / base64 variants) and
+secret-shaped strings (Cookie / Authorization headers, JWTs, PEM blocks, URL
+query strings including `tempauth=`, long opaque base64) are replaced with
+`[REDACTED]`.
+
+At import, a `RedactingFilter` is attached to the `httpx`, `httpcore` and
+`playwright` loggers so library/bot callers get scrubbing without calling
+anything. For process-wide stderr and uncaught-traceback scrubbing, call
+`redact.install()` or use `with redact.active():` (reference-counted so nested/concurrent `signed_in`/`fetch` calls do not uninstall early) (what `signed_in` and
+`fetch` do automatically). See README.
+
+Tests assert registered secrets are absent from `str(err)`, `repr(err)`, the
+stderr wrapper, the excepthook, and log records. A separate test removes the
+filter and asserts the secret then *appears*, so the absence assertions are
+shown to be meaningful.
+
 ## What the Tool Protects Against
 
 - **Other users on the machine.** Files are written `0600` through a temp file
@@ -100,7 +173,8 @@ desktop session. A headless Linux server has no unlocked keyring, so use
   run, only ever upward, and a lock stops two runs from presenting the same
   value.
 - **Leaking tokens to logs.** Printed URLs have their query string and
-  fragment removed (OAuth codes, tokens). The private key and cookies are
+  fragment removed (OAuth codes, tokens). Errors, tracebacks, log records
+  and stderr run through `redact.py`. The private key and cookies are
   never printed.
 - **A planted `.env`.** Settings files that someone else owns or can write to
   are refused, since they decide where the username goes and where the key is

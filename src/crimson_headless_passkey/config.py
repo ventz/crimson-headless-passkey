@@ -13,7 +13,30 @@ from .secretstore import default_secret_store, parse_secret_store
 
 DEFAULT_LOGIN_URL = "https://login.harvard.edu"
 DEFAULT_RP_ID = "login.harvard.edu"
-DEFAULT_IDP_HOSTS = ("login.harvard.edu", "harvard.okta.com")
+DEFAULT_IDP_HOSTS = ("login.harvard.edu", "harvard.okta.com", "key.harvard.edu")
+# Microsoft Entra ID sign-in hosts. Harvard's Microsoft 365 (SharePoint,
+# OneDrive) federates to HarvardKey through them, so on the way to SharePoint
+# the browser passes "Pick an account" / "Stay signed in?" pages here. They
+# count as "still signing in", never as a destination (unverified against the
+# real tenant as of 2026-10-20; see CLAUDE.md).
+DEFAULT_SSO_HOSTS = (
+    "login.microsoftonline.com",
+    "login.microsoft.com",
+    "login.windows.net",
+    "login.live.com",
+)
+
+
+def merge_hosts(*groups: Iterable[str]) -> tuple[str, ...]:
+    """Union host lists, lowercase, first-seen order. Later groups only add."""
+    seen: list[str] = []
+    for group in groups:
+        for host in group:
+            h = host.strip().lower()
+            if h and h not in seen:
+                seen.append(h)
+    return tuple(seen)
+
 
 ENV_HOME = "CRIMSON_HEADLESS_PASSKEY_HOME"
 ENV_LOGIN_URL = "CRIMSON_HEADLESS_PASSKEY_URL"
@@ -21,6 +44,8 @@ ENV_RP_ID = "CRIMSON_HEADLESS_PASSKEY_RP_ID"
 ENV_IDP_HOSTS = "CRIMSON_HEADLESS_PASSKEY_IDP_HOSTS"
 ENV_USERNAME = "CRIMSON_HEADLESS_PASSKEY_USERNAME"
 ENV_SECRET_STORE = "CRIMSON_HEADLESS_PASSKEY_SECRET_STORE"
+ENV_UPN = "CRIMSON_HEADLESS_PASSKEY_UPN"
+ENV_SSO_HOSTS = "CRIMSON_HEADLESS_PASSKEY_SSO_HOSTS"
 
 # Okta's own signed-in pages. Landing on one of these means sign-in finished
 # even though the page is still on an IdP host (e.g. when the target URL is the
@@ -145,6 +170,21 @@ def final_url_problem(url: str) -> str | None:
     return None
 
 
+# PeopleSoft (Harvard HR/payroll) is reachable only through `login
+# --no-save-state` (user's rule, 2026-10-03). Library helpers and fetch refuse it.
+PEOPLESOFT_HOSTS = ("peoplesoft.harvard.edu",)
+PEOPLESOFT_SUFFIXES = (".hrapps.harvard.edu",)
+
+
+def is_peoplesoft_url(url: str) -> bool:
+    host = host_of(url)
+    return (
+        host in PEOPLESOFT_HOSTS
+        or any(host.endswith(s) or host == s.lstrip(".") for s in PEOPLESOFT_SUFFIXES)
+        or (host.startswith("peoplesoft.") and host.endswith("harvard.edu"))
+    )
+
+
 def validate_url(url: str) -> str:
     """Clean pasted junk, then accept https URLs, and http only on loopback."""
     url = clean_url(url)
@@ -162,6 +202,19 @@ class Settings:
     username: str | None = None
     # Where the private key is kept: "keychain" (default on macOS) or "file".
     secret_store: str = field(default_factory=default_secret_store)
+    # What to type into Microsoft's "Pick an account" (loginfmt); default: username.
+    upn: str | None = None
+    # Intermediate SSO hosts (Microsoft Entra): still signing in, never a destination.
+    sso_hosts: tuple[str, ...] = DEFAULT_SSO_HOSTS
+
+    @property
+    def signing_in_hosts(self) -> tuple[str, ...]:
+        """Every host where the browser is still signing in: the IdP plus SSO hops."""
+        return tuple(dict.fromkeys((*self.idp_hosts, *self.sso_hosts)))
+
+    @property
+    def microsoft_login_name(self) -> str | None:
+        return self.upn or self.username
 
     @property
     def credential_file(self) -> Path:
@@ -181,15 +234,29 @@ class Settings:
         idp_hosts: Iterable[str] | None = None,
         username: str | None = None,
         secret_store: str | None = None,
+        upn: str | None = None,
+        sso_hosts: Iterable[str] | None = None,
         env: Mapping[str, str] = os.environ,
     ) -> Settings:
         """Build settings: explicit arguments win, then env vars, then defaults."""
-        if idp_hosts is not None:
-            hosts = tuple(h.lower() for h in idp_hosts)
-        elif env.get(ENV_IDP_HOSTS):
-            hosts = parse_hosts(env[ENV_IDP_HOSTS])
-        else:
-            hosts = DEFAULT_IDP_HOSTS
+        # Configured hosts ADD to the built-in defaults; they never replace them
+        # (security review 2026-10-20: IdP exclusion must not quietly turn off).
+        extra_idp = (
+            tuple(h.lower() for h in idp_hosts)
+            if idp_hosts is not None
+            else parse_hosts(env[ENV_IDP_HOSTS])
+            if env.get(ENV_IDP_HOSTS)
+            else ()
+        )
+        hosts = merge_hosts(DEFAULT_IDP_HOSTS, extra_idp)
+        extra_sso = (
+            tuple(h.lower() for h in sso_hosts)
+            if sso_hosts is not None
+            else parse_hosts(env[ENV_SSO_HOSTS])
+            if env.get(ENV_SSO_HOSTS)
+            else ()
+        )
+        sso = merge_hosts(DEFAULT_SSO_HOSTS, extra_sso)
         return cls(
             data_dir=(
                 Path(data_dir).expanduser() if data_dir else default_data_dir(env)
@@ -201,4 +268,6 @@ class Settings:
             secret_store=parse_secret_store(
                 secret_store or env.get(ENV_SECRET_STORE) or default_secret_store()
             ),
+            upn=upn or env.get(ENV_UPN) or None,
+            sso_hosts=sso,
         )

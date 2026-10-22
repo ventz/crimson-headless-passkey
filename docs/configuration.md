@@ -23,6 +23,9 @@ flags, real environment variables, `.env`, built-in defaults.
 | `--idp-host` (repeatable) | `CRIMSON_HEADLESS_PASSKEY_IDP_HOSTS` (comma-separated) | `login.harvard.edu,harvard.okta.com` | Hosts that count as "still signing in" |
 | `--username` | `CRIMSON_HEADLESS_PASSKEY_USERNAME` | name saved at registration, then Okta's `ln` cookie | Answer for Okta's username prompt |
 | `--secret-store` | `CRIMSON_HEADLESS_PASSKEY_SECRET_STORE` | `keychain` on macOS, `file` elsewhere | Where the private key and saved session are kept: the OS keychain, or `0600` files for fully hands-off runs where nobody is logged in. **`file` puts secrets on disk on purpose; read [SECURITY.md](../SECURITY.md#where-the-secrets-live) first.** Secrets found in the other place move on the next sign-in. |
+| `--upn` | `CRIMSON_HEADLESS_PASSKEY_UPN` | same as `--username` | What to type into Microsoft's "Pick an account" (loginfmt) on the way to SharePoint / OneDrive |
+| `--sso-host` (repeatable) | `CRIMSON_HEADLESS_PASSKEY_SSO_HOSTS` | `login.microsoftonline.com,login.microsoft.com,login.windows.net` | Intermediate SSO hosts that count as "still signing in", never as a destination |
+| `--config` | `CRIMSON_HEADLESS_PASSKEY_CONFIG` | `~/.config/crimson-headless-passkey/config.toml` | Non-secret per-user settings file |
 
 ## The .env File
 
@@ -76,6 +79,7 @@ secret.
 | `login [URL]` | `--headless`, `--channel`, `--timeout` (seconds, default 30), `--fresh`, `--no-save-state`, `--keep-open` / `--close`, `-v` / `--verbose`, `--aws-allow` | `--fresh` ignores saved cookies, so it needs `--username`. The browser stays open for inspection only when headed and run from a terminal; `--keep-open` cannot be combined with `--headless`. The session file is only rewritten after a successful sign-in. |
 | `open [URL]` | `--no-auth`, `--fresh`, `--channel`, `-v` / `--verbose`, `--aws-allow` | Opens the page in a signed-in browser and leaves it open until ENTER. With `--no-auth`: a plain browser with no passkey and no cookies, so the same URL shows what an unauthenticated visit looks like. |
 | `status` | | Settings in effect plus a summary of the stored files |
+| `fetch URL` (also `harvard-fetch`) | `--out`, `--no-recurse`, `--overwrite`, `--dry-run`, `--json`, `--concurrency`, `--cookies-out`, `--headed`, `--fresh`, `--no-save-state`, `--timeout` | Sign in and download a file or SharePoint/OneDrive folder |
 
 All commands accept the settings flags from the table above.
 
@@ -115,12 +119,55 @@ tool falls back to an installed Google Chrome and says so), or use `chrome` /
 
 ## Exit Codes
 
+**BREAKING in 0.3.0:** code `1` used to mean every "not signed in". It now means
+authentication failed specifically. See [CHANGELOG](../CHANGELOG.md) for the
+old-to-new mapping.
+
 | Code | Meaning |
 |------|---------|
-| 0 | Signed in (or the command finished) |
-| 1 | `login` did not finish signing in before the timeout |
-| 2 | Configuration, file or browser error (missing credential, unsafe permissions, bad URL, browser not installed) |
+| 0 | OK (signed in, or every file fetched / already present) |
+| 1 | Auth failed (passkey rejected, Okta error banner, timeout) |
+| 2 | Configuration, file, browser or refused-URL error |
+| 3 | Needs a human (no passkey option, Okta Verify / push / code, CAPTCHA, username unknown) |
+| 4 | Network (chrome-error, connection refused, 5xx after retries) |
+| 5 | Not found / no access after sign-in |
+| 6 | Partial download (some files failed) |
 | 130 | Interrupted with Ctrl-C |
+
+Every command prints one status line on stderr:
+`crimson-headless-passkey: <status> code=<n> ...`.
+
+## Per-user Config File
+
+`~/.config/crimson-headless-passkey/config.toml` (or `--config` /
+`CRIMSON_HEADLESS_PASSKEY_CONFIG`) holds non-secret defaults:
+
+```toml
+username = "you@example.edu"
+upn = "you@harvard.edu"          # Microsoft account picker; default = username
+timeout = 30
+concurrency = 4
+```
+
+Secret-looking keys (`password`, `token`, …) and token-shaped values are
+refused. Precedence: flags > environment > `.env` > this file > built-ins.
+
+## `fetch` / `harvard-fetch`
+
+| Flag | Meaning |
+|------|---------|
+| `--out DIR` | Directory to write into (required) |
+| `--no-recurse` | Do not descend into subfolders |
+| `--overwrite` | Re-download files already present |
+| `--dry-run` | List what would be fetched; write nothing |
+| `--json` | Print a JSON report on stdout |
+| `--concurrency N` | Parallel downloads (default 4) |
+| `--cookies-out FILE` | Explicit: write the site's cookies (0600). Off by default |
+| `--headed` | Show the browser |
+| `--fresh` / `--no-save-state` | Same meaning as `login` |
+
+PeopleSoft URLs are refused. SharePoint / OneDrive folders resume via `.part`
+files and skip unchanged files using `DIR/.harvard-fetch.json` (non-secret).
 
 ## Using Another Okta Tenant
 

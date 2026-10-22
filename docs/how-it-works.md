@@ -161,7 +161,14 @@ run, parallel CI jobs) take turns instead of presenting the same counter value.
 | `storage.py` | Owner-only atomic JSON writes, SSH-style file and directory checks, credential validation, sign-count merging, run lock |
 | `authenticator.py` | `VirtualAuthenticator`: CDP attach, inject, events |
 | `flows.py` | `authenticate()` (library entry point), `login`, `register`, `open_url` |
-| `cli.py` | Argument parsing, exit codes |
+| `session.py` | `signed_in()`, in-memory `http_client()`, optional `save_cookies()` |
+| `downloader.py` | `fetch` / `fetch_sync` (SharePoint REST + resume) |
+| `pathsafe.py` | Contain downloads inside `--out` |
+| `redact.py` | Scrub secrets from errors, logs and stderr |
+| `okta.py` | Authenticator chooser, error banners, Entra KMSI/loginfmt |
+| `userconfig.py` | Non-secret per-user `config.toml` |
+| `exitcodes.py` | Status → process exit code |
+| `cli.py` | Argument parsing, `harvard-fetch`, exit codes |
 
 Tests in `tests/test_browser.py` run the same code against a fake app and a
 fake IdP served by Playwright routes, entirely offline, so the CDP behavior

@@ -6,6 +6,14 @@ from keyring.backend import KeyringBackend
 from keyring.errors import PasswordDeleteError
 
 
+@pytest.fixture(autouse=True)
+def _isolate_user_config(tmp_path_factory, monkeypatch):
+    """Never read or write the real ~/.config/crimson-headless-passkey/config.toml."""
+    cfg = tmp_path_factory.mktemp("user-config") / "config.toml"
+    monkeypatch.setenv("CRIMSON_HEADLESS_PASSKEY_CONFIG", str(cfg))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg.parent.parent / "xdg-config"))
+
+
 class MemoryKeyring(KeyringBackend):
     """An in-process keychain, so no test ever touches the real one."""
 

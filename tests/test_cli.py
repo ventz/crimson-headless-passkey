@@ -116,7 +116,8 @@ def test_settings_come_from_dot_env(tmp_path, capsys):
     assert main(["status", "--data-dir", str(tmp_path / "data")]) == EXIT_OK
     out = capsys.readouterr().out
     assert "login URL:    https://example.okta.com" in out
-    assert "IdP hosts:    example.okta.com" in out
+    assert "example.okta.com" in out
+    assert "login.harvard.edu" in out  # builtins always present
     assert "username:     someone" in out
 
 
@@ -163,7 +164,7 @@ def test_open_is_signed_in_unless_no_auth(tmp_path, monkeypatch, argv, expected)
 
     async def fake_login(settings, url, **kwargs):
         calls.append(("signed-in", url, kwargs["keep_open"], kwargs["headless"]))
-        return True
+        return "ok"
 
     monkeypatch.setattr(flows, "open_url", fake_open_url)
     monkeypatch.setattr(flows, "login", fake_login)
@@ -181,7 +182,7 @@ def test_verbose_flag_reaches_login_and_open(tmp_path, monkeypatch):
 
     async def fake_login(settings, url, **kwargs):
         seen.append(("login", kwargs["verbose"]))
-        return True
+        return "ok"
 
     async def fake_open_url(url, *, channel=None, verbose=False):
         seen.append(("open", verbose))
@@ -231,7 +232,7 @@ def test_url_argument_is_cleaned_of_colors_and_whitespace(tmp_path, monkeypatch,
 
     async def fake_login(settings, url, **kwargs):
         seen.append(url)
-        return True
+        return "ok"
 
     monkeypatch.setattr(flows, "login", fake_login)
     assert main(["login", "--headless", "--close", "--data-dir", str(tmp_path), raw]) == EXIT_OK
@@ -268,7 +269,7 @@ def test_aws_allow_flag_reaches_login(tmp_path, monkeypatch):
 
     async def fake_login(settings, url, **kwargs):
         seen.append(kwargs["aws_allow"])
-        return True
+        return "ok"
 
     monkeypatch.setattr(flows, "login", fake_login)
     data = ["--data-dir", str(tmp_path)]
@@ -316,9 +317,9 @@ def test_login_never_saves_a_session_that_ended_on_an_error_page(tmp_path, monke
     monkeypatch.setattr(flows.storage, "save_auth_state", lambda *a: saved.append(a))
 
     settings = flows.Settings.from_env(data_dir=tmp_path, env={})
-    ok = asyncio.run(flows.login(settings, "https://idp.example/", headless=True))
+    status = asyncio.run(flows.login(settings, "https://idp.example/", headless=True))
     out = capsys.readouterr().out
-    assert ok is False
+    assert status != "ok"
     assert saved == []
     assert "Signed in" not in out
     assert "error page" in out

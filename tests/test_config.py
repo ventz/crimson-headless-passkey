@@ -72,16 +72,17 @@ def test_settings_precedence():
     assert (s.login_url, s.rp_id, s.idp_hosts, s.data_dir) == (
         "https://env.example",
         "env.example",
-        ("a.example", "b.example"),
+        ("login.harvard.edu", "harvard.okta.com", "key.harvard.edu", "a.example", "b.example"),
         Path("/env"),
     )
     s = Settings.from_env(
         env=env, login_url="https://arg.example", rp_id="ARG.example", idp_hosts=["X.example"]
     )
+    # Configured hosts ADD to the built-ins; they never replace them.
     assert (s.login_url, s.rp_id, s.idp_hosts) == (
         "https://arg.example",
         "arg.example",
-        ("x.example",),
+        ("login.harvard.edu", "harvard.okta.com", "key.harvard.edu", "x.example"),
     )
 
 

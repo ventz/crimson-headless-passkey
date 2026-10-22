@@ -24,7 +24,7 @@ from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
-from . import secretstore
+from . import redact, secretstore
 from .errors import CredentialFileError, InsecurePermissionsError, KeychainError
 
 # Fields CDP needs to re-inject a credential, and the base64 ones among them.
@@ -200,6 +200,7 @@ def load_credentials(path: Path) -> list[dict[str, Any]]:
             entry = {**entry, "privateKey": key}
         cred = credential_from_cdp(entry)
         cred["keyStore"] = where
+        redact.register_credential(cred)  # never echoed by a later error or log
         credentials.append(cred)
     return credentials
 
@@ -310,8 +311,11 @@ def load_auth_state(path: Path, secret_store: str = secretstore.FILE) -> dict[st
     session saved before a store change is still used until it is moved.
     """
     if secret_store == secretstore.KEYCHAIN:
-        return _keychain_session(path) or _session_from_file(path)
-    return _session_from_file(path) or _keychain_session(path, quiet=True)
+        state = _keychain_session(path) or _session_from_file(path)
+    else:
+        state = _session_from_file(path) or _keychain_session(path, quiet=True)
+    redact.register_storage_state(state)
+    return state
 
 
 def save_auth_state(
