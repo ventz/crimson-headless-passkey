@@ -535,16 +535,26 @@ def quit_system_chrome() -> None:
 
 REGISTER_INSTRUCTIONS = """
 ============================================================
-PHASE 1: Verify your identity the normal way (e.g. Touch ID)
+Register a new passkey (6 steps; 1-4 now, 5-6 after ENTER)
 ============================================================
-1. Sign in with your existing passkey, security key or app.
-2. Open your Okta security settings and choose "Set up" for
-   another "Security Key or Biometric" (NOT Okta FastPass).
-3. If Okta asks you to verify again, do it the normal way.
+1. In the Chrome window that just opened, sign in the normal
+   way (username, then Touch ID, Duo or your security key).
+2. On your account page, under "Security methods", click
+   "Manage security methods". (HarvardKey: this is
+   https://login.harvard.edu/account-settings/security)
+3. Find "Security Key or Biometric Authenticator" and click
+   "+ Set up another" ("Set up" if you have none yet).
+   NOT Okta Verify / FastPass. If Okta asks you to verify
+   again, do it the normal way.
 4. STOP at the enrollment screen ("Set up security key" /
-   "Use passkey"). Do NOT click its button yet.
-
-Press ENTER here right BEFORE clicking the enrollment button.
+   "Use passkey"). Do NOT click its button yet. Come back
+   here and press ENTER.
+5. Then click the enrollment button in Chrome. No Touch ID
+   or passkey prompt should appear: the virtual
+   authenticator answers. (If one does, cancel it: the
+   authenticator was not attached.)
+6. When Okta shows the method as added, press ENTER here
+   again to save the key.
 ============================================================
 """
 
@@ -590,7 +600,9 @@ async def register(
             await page.goto(settings.login_url)
             print(f"\nOpened {settings.login_url}")
             print(REGISTER_INSTRUCTIONS)
-            await prompt("Press ENTER to activate the virtual authenticator... ")
+            await prompt(
+                "Step 4: press ENTER at the enrollment screen to attach the authenticator... "
+            )
 
             page = enrollment_page(context, settings)
             if page is None:
@@ -598,9 +610,9 @@ async def register(
             authn = await VirtualAuthenticator.attach(context, page)
             try:
                 print(f"\nVirtual authenticator active on {redact_url(page.url)}")
-                print("Now click the enrollment button in the browser.")
+                print("Step 5: click the enrollment button in Chrome now.")
                 print("The virtual authenticator answers it; no Touch ID needed.")
-                await prompt("\nPress ENTER once Okta shows the enrollment succeeded... ")
+                await prompt("\nStep 6: press ENTER once Okta shows the method as added... ")
 
                 captured = list(authn.added)
                 if not captured:

@@ -32,7 +32,7 @@ sequenceDiagram
 
     You->>Chrome: Sign in with Touch ID (real authenticator)
     Chrome->>Okta: Identity verified
-    You->>Chrome: Security settings, then "Set up" Security Key or Biometric
+    You->>Chrome: Security settings, then "Set up another" Security Key or Biometric
     Note over You,CDP: Press ENTER in the terminal: CDP authenticator attached now
     You->>Chrome: Click the enrollment button
     Okta->>Chrome: navigator.credentials.create()

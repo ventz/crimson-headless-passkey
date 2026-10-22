@@ -42,16 +42,22 @@ expired.
 uv run crimson-headless-passkey register
 ```
 
-1. Chrome opens on the sign-in page. Sign in the normal way.
-2. Go to your Okta security settings and pick **Set up** next to
-   **Security Key or Biometric**. Not Okta FastPass: FastPass isn't WebAuthn.
-3. Verify again if Okta asks.
-4. When the enrollment screen with its button is showing, **switch to the
-   terminal and press ENTER first**. That attaches the virtual authenticator.
-5. Click the enrollment button in Chrome. No Touch ID prompt appears: the
-   virtual authenticator answers.
-6. When Okta confirms, press ENTER again. On macOS the private key is saved
-   and the session are saved in your login Keychain, and only non-secret
+1. Chrome opens on the sign-in page. Sign in the normal way (username, then
+   Touch ID, Duo or your security key).
+2. On your account page, under **Security methods**, click **Manage security
+   methods**. For HarvardKey that is
+   `https://login.harvard.edu/account-settings/security`.
+3. Find **Security Key or Biometric Authenticator** and click **+ Set up
+   another** (**Set up** if you have none yet). Not Okta Verify or FastPass:
+   FastPass isn't WebAuthn. Verify again if Okta asks.
+4. When the enrollment screen with its button is showing, **don't click it
+   yet: switch to the terminal and press ENTER first**. That attaches the
+   virtual authenticator.
+5. Click the enrollment button in Chrome. No Touch ID or passkey prompt
+   appears: the virtual authenticator answers. If one does, cancel it; the
+   authenticator wasn't attached.
+6. When Okta confirms, press ENTER again. On macOS the private key and the
+   session are saved in your login Keychain, and only non-secret
    fields go to `~/.local/share/crimson-headless-passkey/`. Elsewhere (or with
    `--secret-store file`) they are saved as `0600` files there instead.
 
